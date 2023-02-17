@@ -1,0 +1,157 @@
+# A workflow to "harden" the image that was build on the previous stage.
+# It expects an (unoptimized) version of the image to already exist in the registry.
+#
+# The current workflow:
+#  - Installs slimctl.
+#  - Instruments the "target" image.
+#  - Starts an instrumented container and "probes" it.
+#  - Builds a hardened version of the image using application
+#    intelligence collected during the probe step.
+name: harden
+
+on:
+  workflow_call:
+    inputs:
+      # The image to be hardened (aka "target" image).
+      image:
+        required: true
+        type: string
+
+# Using different jobs for every hardening stage to show that
+# there is no dependency by local data. All the interactions
+# between the stages happen either through the Slim.AI API or
+# the container registry.
+jobs:
+
+  # The Instrument stage: Build an image FROM the target image by
+  #                       adding Slim sensors into i.
+  instrument:
+    runs-on: ubuntu-latest
+    env:
+      INST_IMAGE: ${{ inputs.image }}-slim-instrumented
+      HARD_IMAGE: ${{ inputs.image }}-slim-hardened
+    outputs:
+      # A hardening "attempt" ID (will be needed on the Harden stage).
+      inst-id: ${{ steps.instrument.outputs.inst-id }}
+
+      # The (temporary) Instrumented image name. Will be needed on the
+      # Probe stage.
+      inst-image: ${{ env.INST_IMAGE }}
+
+      # The (final) Hardened image name. This is the main artifact produced
+      # by this workflow. Will be needed during the Verify stage and in a
+      # hypothetical "deploy" workflow (not a part of this example).
+      hard-image: ${{ env.HARD_IMAGE }}
+    steps:
+      # TMP WORKAROUND: Until the slimctl action is published.
+      - uses: actions/checkout@v3
+
+      # Install and configure the slimctl CLI.
+      - uses: ./.github/actions/slimctl
+        with:
+          token: ${{ secrets.SLIM_TOKEN }}
+
+      # Build the Instrumented image. When the instrument command is done,
+      # the instrumented image will be available in the registry.
+      #
+      # A few optional but handy flags to be aware of:
+      # 
+      # --include-path allows to keep some folders always included in the Hardened Image.
+      # --stop-grace-period gives the sensor enough space to finish its job before exiting
+      #                     (when the default 5 seconds is not enough).
+      # 
+      # Also, note the "attempt" ID generation.
+      - name: Instrument the target image
+        id: instrument
+        run: |
+          INST_ID=$(slim instrument \
+            --instrumented-image ${INST_IMAGE} \
+            --hardened-image ${HARD_IMAGE} \
+            --stop-grace-period 30s \
+            ${{ inputs.image }})
+          echo "inst-id=${INST_ID}" >> $GITHUB_OUTPUT
+  # The Probe stage: Start a container using the Instrumented image
+  #                  and try using it to let the Slim sensors observe
+  #                  the application running.
+  probe:
+    runs-on: ubuntu-latest
+    needs: instrument
+    steps:
+      - uses: actions/checkout@v3
+      - uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: "v0.17.0"
+      - name: Setting up KinD and kubectl
+        run: |
+          kubectl cluster-info
+          kubectl get pods -n kube-system
+          echo "current-context:" $(kubectl config current-context)
+      - name: Deploy the instrumented image
+        run: |
+          export INST_IMAGE=${{ needs.instrument.outputs.inst-image }}
+          envsubst <  kubernetes/app-instrumented.yaml | kubectl apply -f -
+          kubectl apply -f kubernetes/redis.yaml
+          kubectl get deployment/app
+          kubectl wait --for=condition=Available deployment/app --timeout=60s
+      - name: Probe the Instrumented Container
+        run: |
+          kubectl port-forward deployment/app 8080:8080 &
+          for i in 1 2 3 4 5; do
+            curl -v --fail http://localhost:8080 && echo "OK" && break
+            [ "$i" = "5" ] && echo "FAIL" && exit 1
+            sleep 5
+          done
+      - name: Stop the Pod(s)
+        run: |
+          kubectl delete -f kubernetes/app-instrumented.yaml
+  # The Harden stage: Build a hardened version of the image using the reports
+  #                   collected on the previous stage.
+  harden:
+    runs-on: ubuntu-latest
+    needs: [instrument, probe]
+    steps:
+      # TMP WORKAROUND: Until the slimctl action is published.
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/slimctl
+        with:
+          token: ${{ secrets.SLIM_TOKEN }}
+
+      # The harden command needs to be provided with the ID obtained on
+      # the Instrument phase. When the harden command is done, the Hardened
+      # Image should be available in the registry.
+      - name: Harden the Target Image
+        run: |
+          slim harden --id ${{ needs.instrument.outputs.inst-id }}
+  # The (optional) Verify stage: Run a container using the Hardened Image
+  #                              and see if it's actually functional.
+  verify:
+    runs-on: ubuntu-latest
+    needs: [instrument, probe, harden]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: "v0.17.0"
+      - name: Setting up KinD and kubectl
+        run: |
+          kubectl cluster-info
+          kubectl get pods -n kube-system
+          echo "current-context:" $(kubectl config current-context)
+          echo "environment-kubeconfig:" ${KUBECONFIG}
+      - name: Deploy the hardened image
+        run: |
+          export HARD_IMAGE=${{ needs.instrument.outputs.hard-image }}
+          envsubst <  kubernetes/app-hardened.yaml | kubectl apply -f -
+          kubectl apply -f kubernetes/redis.yaml
+          kubectl describe deployment/app
+          kubectl get pod -l app=app -o jsonpath={..spec.containers[].image}
+          kubectl wait --for=condition=Available deployment/app --timeout=60s   
+      - name: Test the Hardened Container
+        run: |
+          kubectl port-forward deployment/app 8080:8080 &
+          for i in 1 2 3 4 5; do
+            curl -v --fail http://localhost:8080 && echo "OK" && break
+            [ "$i" = "5" ] && echo "FAIL" && exit 1
+            sleep 5
+          done

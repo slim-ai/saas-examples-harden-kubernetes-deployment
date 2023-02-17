@@ -1,0 +1,49 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      # Give the sensors in the instrumented Pod enough time to
+      # finalize and submit the reports back to Slim SaaS.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: app
+          image: ${INST_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          # This "elevated" security context is needed only
+          # for the instrumented image. The hardened image
+          # will run with the same security context as the
+          # original image uses.
+          securityContext:
+            runAsUser: 0  # root
+            capabilities:
+              add: ["ALL"]
+            readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  ports:
+    - name: http-8080
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: app
+
