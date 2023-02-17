@@ -9,6 +9,10 @@ The repository includes:
 - [A workflow to optimize and _harden_ this image](.github/workflows/harden.yaml).
 - [Examples of the input and output images](https://github.com/slim-ai/saas-examples-harden-simple-app/pkgs/container/saas-examples-harden-simple-app).
 
+Here is a very high level overview of what our Kubernetes manifests intend to do:
+<img src=https://user-images.githubusercontent.com/45476902/219765099-51d72254-e3d7-4047-886f-dab5c75dfdd6.png width="60%" height="50%">
+
+
 The application code is straightforward and the Workflow files are heavily commented.
 
 You can explore this repository, and then clone it and adapt it to your application. 
@@ -80,7 +84,9 @@ rknx.2LkF7SjT3M0YbaXAMTjWgGm8zQN  # Instrumentation "attempt ID". Save this: you
 Now that we have our agent (aka, the Slim Sensor) in the target container, it is time to implement the mission. That is, to run a workload (Deployment in this case) using the instrumented image. Make sure you use a specially configured `securityContext` and give the Pods enough time to terminate gracefully: 
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/app-instrumented.yaml
+$ export INST_IMAGE=<insert the instrumented image name>
+
+$ envsubst <  https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/app-instrumented.yaml | kubectl apply -f -
 
 $ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/redis.yaml 
 ```
@@ -121,7 +127,9 @@ $ slim harden --id <instrumentation attempt ID>
 Redeploy the workload with the hardened image (notice that it doesn’t require any extra security context):
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/app-hardened.yaml
+$ export HARD_IMAGE=<insert the hardened image name>
+
+$ envsubst <  https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/app-hardened.yaml | kubectl apply -f -
 
 $ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/redis.yaml 
 ```
