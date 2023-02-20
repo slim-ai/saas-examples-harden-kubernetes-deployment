@@ -1,17 +1,21 @@
-# Primer: a Node.js Application Hardening in Kubernetes Workload
+# Primer: a Kubernetes Deployment Hardening
 
 The repository includes:
 
-- A simple server application written in Node.js.
-- A typical Dockerfile to containerize it.
-- A folder containing the Kubernetes manifests needed for The Node app and redis deployment.
-- [A workflow to build and push the (very large) image to a registry](.github/workflows/build.yaml).
-- [A workflow to optimize and _harden_ this image](.github/workflows/harden.yaml).
-- [Examples of the input and output images](https://github.com/slim-ai/saas-examples-harden-simple-app/pkgs/container/saas-examples-harden-simple-app).
+- A simple Node.js web service backed by a Redis database
+- ...run as Kubernetes Deployments and exposed as Services
+- A typical Dockerfile to containerize the Node.js app
+- [A workflow to build and push the (very large) Node.js-based image to a registry](.github/workflows/build.yaml)
+- [A workflow to optimize and _harden_ this image](.github/workflows/harden.yaml)
+- [Examples of the input and output images](https://github.com/slim-ai/saas-examples-harden-kubernetes-deployment/pkgs/container/saas-examples-harden-kubernetes-deployment)
 
-Here is a very high level overview of what our Kubernetes manifests intend to do:
-<img src=https://user-images.githubusercontent.com/45476902/219765099-51d72254-e3d7-4047-886f-dab5c75dfdd6.png width="60%" height="50%">
+Here is a high-level overview of what our Kubernetes manifests intend to do:
 
+<p align="center">
+  <img src=https://user-images.githubusercontent.com/45476902/219765099-51d72254-e3d7-4047-886f-dab5c75dfdd6.png width="80%">
+</p>
+
+The purpose of this example is to show that hardening of Kubernetes workloads is no harder (no pun intented) than [hardening of regular Docker containers](https://github.com/slim-ai/saas-examples-harden-simple-app).
 
 The application code is straightforward and the Workflow files are heavily commented.
 
@@ -38,16 +42,17 @@ With Slim.AI, you can:
 ## Hardening Kubernetes Workload using the Slim CLI
 
 ### Prerequisites
+
 To complete this tutorial, you will need: 
 
 * A fresh version of the Slim CLI installed and configured [link](https://portal.slim.dev/cli) / [docs]()
 
 * A container registry connector configured via the Slim SaaS [link](https://portal.slim.dev/connectors) / [docs](https://www.slim.ai/docs/connectors) 
 
-*  Kubernetes (kind), kubectl and a local cluster created.
+* A Kubernetes cluster and kubectl configured.
 
 ```sh
-$ curl -sLS <https://get.arkade.dev> | sudo sh
+$ curl -sLS https://get.arkade.dev | sudo sh
 
 $ ark get kind kubectl
 $ sudo ln -s ${HOME}/.arkade/bin/kind /usr/local/bin/
@@ -71,8 +76,12 @@ The first step involves instrumenting the image. Simply speaking, this means add
 ```sh
 $ slim instrument \
   --include-path /service \
-  --stop-grace-period 30s  \
+  --stop-grace-period 120s \
    ghcr.io/slim-ai/saas-examples-harden-kubernetes-deployment:latest
+...
+[instrument] target image: ghcr.io/slim-ai/saas-examples-harden-kubernetes-deployment:latest
+[instrument] instrumented image: ghcr.io/slim-ai/saas-examples-harden-kubernetes-deployment:latest-slim-instrumented
+[instrument] hardened image: ghcr.io/slim-ai/saas-examples-harden-kubernetes-deployment:latest-slim-hardened
 ...
 rknx.2LkF7SjT3M0YbaXAMTjWgGm8zQN  # Instrumentation "attempt ID". Save this: you'll need it later.
 ```
@@ -84,7 +93,7 @@ rknx.2LkF7SjT3M0YbaXAMTjWgGm8zQN  # Instrumentation "attempt ID". Save this: you
 Now that we have our agent (aka, the Slim Sensor) in the target container, it is time to implement the mission. That is, to run a workload (Deployment in this case) using the instrumented image. Make sure you use a specially configured `securityContext` and give the Pods enough time to terminate gracefully: 
 
 ```sh
-$ export INST_IMAGE=<insert the instrumented image name>
+$ export INST_IMAGE=<insert the instrumented image name from the above output>
 
 $ envsubst <  https://raw.githubusercontent.com/slim-ai/saas-examples-harden-kubernetes-deployment/main/kubernetes/app-instrumented.yaml | kubectl apply -f -
 
@@ -96,7 +105,6 @@ $ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harde
 “Test" the deployment with instrumented image — the Slim process needs the container to be exercised in some way to trigger the Observations. In the case of this simple app, merely running a `curl` request against the running workload will suffice. In reality, integration tests in a test or staging environment are the most common. 
 
 ```sh
-$ kubectl get deployment/app
 $ kubectl port-forward deployment/app 8080:8080 &
 
 $ curl localhost:8080
@@ -109,7 +117,7 @@ By running curl, we see that the Node web app returns a response. Under the hood
 Finally, Stop the Pod(s) gracefully to make the sensor(s) submit the reports back to Slim SaaS. Failure to stop the Pod(s) gracefully may result in a failed hardening process. 
 
 ```sh
-$ kubectl scale deployment app --replicas 0
+$ kubectl delete deployment app
 ```
 
 #### Step 3: Harden  🔨
@@ -137,8 +145,6 @@ $ kubectl apply -f https://raw.githubusercontent.com/slim-ai/saas-examples-harde
 Verify that the hardened image works by re-running tests. 
 
 ```sh
-$ kubectl get deployment/app
-
 $ kubectl get pod -l app=app -o jsonpath={..spec.containers[].image}
 
 $ kubectl port-forward deployment/app 8080:8080 &

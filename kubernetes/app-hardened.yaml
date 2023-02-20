@@ -15,19 +15,12 @@ spec:
       labels:
         app: app
     spec:
-      # Give the sensors in the instrumented Pod enough time to
-      # finalize and submit the reports back to Slim SaaS.
-      terminationGracePeriodSeconds: 120
       containers:
         - name: app
           image: ${HARD_IMAGE}
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
-          # This "elevated" security context is needed only
-          # for the instrumented image. The hardened image
-          # will run with the same security context as the
-          # original image uses.
 ---
 apiVersion: v1
 kind: Service
@@ -42,4 +35,3 @@ spec:
       targetPort: 8080
   selector:
     app: app
-
