@@ -51,7 +51,7 @@ jobs:
       - uses: ./.github/actions/slimctl
         with:
           token: ${{ secrets.SLIM_TOKEN }}
-
+      
       # Build the Instrumented image. When the instrument command is done,
       # the instrumented image will be available in the registry.
       #
@@ -145,3 +145,12 @@ jobs:
             [ "$i" = "5" ] && echo "FAIL" && exit 1
             sleep 5
           done
+
+  # The (optional) callable workflow to create the Vulnerability Scan Report 
+  # of the hardened image 
+  vulnerability-scan:
+    needs: harden
+    uses: ./.github/workflows/vscan.yaml
+    secrets: inherit
+    with:
+      image: ${{ needs.instrument.outputs.hard-image }}
