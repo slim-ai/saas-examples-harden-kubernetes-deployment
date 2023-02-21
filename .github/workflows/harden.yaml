@@ -132,6 +132,7 @@ jobs:
           export HARD_IMAGE=${{ needs.instrument.outputs.hard-image }}
           envsubst <  kubernetes/app-hardened.yaml | kubectl apply -f -
           kubectl apply -f kubernetes/redis.yaml
+          kubectl describe deployment/app
           kubectl wait --for=condition=Available deployment/app --timeout=600s   
       - name: Test the Hardened Deployment
         run: |
