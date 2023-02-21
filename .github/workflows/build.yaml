@@ -56,3 +56,4 @@ jobs:
     secrets: inherit
     with:
       image: ${{ needs.build.outputs.image }}
+      name:  unoptimized -image-vuln-scan-report
