@@ -68,7 +68,6 @@ jobs:
           INST_ID=$(slim instrument \
             --instrumented-image ${INST_IMAGE} \
             --hardened-image ${HARD_IMAGE} \
-            --include-path /etc/passwd \
             --stop-grace-period 120s \
             ${{ inputs.image }})
           echo "inst-id=${INST_ID}" >> $GITHUB_OUTPUT
