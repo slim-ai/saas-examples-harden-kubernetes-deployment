@@ -30,7 +30,7 @@ server.route({
           reject(err);
         }
 
-        resolve({message: "Hello Slim World"});
+        resolve({message: "Hello Slim World\n"});
       });
     });
   }
