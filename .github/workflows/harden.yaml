@@ -97,8 +97,9 @@ jobs:
           done
       - name: Stop the Pod(s)
         run: |
-          kubectl logs -l app=app --all-containers=true &
-          kubectl delete -f kubernetes/app-instrumented.yaml
+          kubectl logs -l app=app --all-containers=true
+          kubectl delete --grace-period=120 --wait=false -f kubernetes/app-instrumented.yaml
+          kubectl logs -l app=app --all-containers=true
 
   # The Harden stage: Build a hardened version of the image using the reports
   #                   collected on the previous stage.
